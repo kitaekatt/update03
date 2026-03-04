@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PLUGIN_DATA="${HOME}/.claude/plugins/data/setup"
 TIMESTAMP_FILE="${PLUGIN_DATA}/last_bootstrap"
-THROTTLE_SECONDS=86400  # 24 hours
+THROTTLE_SECONDS=57600  # 16 hours
 
 # --- Source shared helpers and step functions ---
 
