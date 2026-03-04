@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# session-bootstrap.sh — SessionStart hook for setup plugin
+# session-bootstrap.sh — SessionStart hook for bootstrap plugin
 #
 # Runs bootstrap at most once every 24 hours. Checks a timestamp file
 # in plugin data dir; skips if last run was < 24h ago.
@@ -18,7 +18,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-PLUGIN_DATA="${HOME}/.claude/plugins/data/setup"
+PLUGIN_DATA="${HOME}/.claude/plugins/data/bootstrap"
 TIMESTAMP_FILE="${PLUGIN_DATA}/last_bootstrap"
 THROTTLE_SECONDS=57600  # 16 hours
 
@@ -81,12 +81,12 @@ format_bootstrap_error_context() {
     if [ -n "$context_msg" ]; then
         local decoded
         decoded="$(printf '%b' "$context_msg")"
-        printf '%s' "setup -> Bootstrap failed:
+        printf '%s' "bootstrap -> Bootstrap failed:
 ${decoded}"
     else
         local msg
         msg="$(_extract_json_field "$step_json" "message")"
-        printf '%s' "setup -> ERROR: $msg"
+        printf '%s' "bootstrap -> ERROR: $msg"
     fi
 }
 
@@ -97,12 +97,12 @@ format_bootstrap_error_user() {
     if [ -n "$user_msg" ]; then
         local decoded
         decoded="$(printf '%b' "$user_msg")"
-        printf '%s' "setup -> Setup issues found:
+        printf '%s' "bootstrap -> Setup issues found:
 ${decoded}"
     else
         local msg
         msg="$(_extract_json_field "$step_json" "message")"
-        printf '%s' "setup -> ERROR: $msg"
+        printf '%s' "bootstrap -> ERROR: $msg"
     fi
 }
 
@@ -111,7 +111,7 @@ ${decoded}"
 main() {
     # Step 0: Check throttle — skip if last run was < 16h ago
     if is_throttled; then
-        emit_hook_response "setup -> ok (cached)"
+        emit_hook_response "bootstrap -> ok (cached)"
         exit 0
     fi
 
@@ -147,7 +147,7 @@ main() {
     write_timestamp
 
     # All steps passed
-    emit_hook_response "setup -> ok"
+    emit_hook_response "bootstrap -> ok"
 }
 
 main

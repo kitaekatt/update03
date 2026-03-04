@@ -36,7 +36,7 @@ EOF
 update_plugins() {
     local results=()
     local plugins=(
-        "setup@update01"
+        "bootstrap@update01"
         "unreal-kit@plugins-kit"
     )
 

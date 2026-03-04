@@ -1,5 +1,5 @@
 {
-  "name": "setup",
+  "name": "bootstrap",
   "version": "0.1.0",
   "description": "Always-run bootstrap plugin that ensures marketplaces and plugins stay up to date",
   "author": {"name": "Christina"},
