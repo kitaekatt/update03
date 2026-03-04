@@ -1,6 +1,6 @@
 {
   "name": "bootstrap",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Always-run bootstrap plugin that ensures marketplaces and plugins stay up to date",
   "author": {"name": "Christina"},
   "keywords": ["bootstrap", "auto-update"]
