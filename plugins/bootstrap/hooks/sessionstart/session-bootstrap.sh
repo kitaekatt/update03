@@ -111,7 +111,6 @@ ${decoded}"
 main() {
     # Step 0: Check throttle — skip if last run was < 16h ago
     if is_throttled; then
-        emit_hook_silent
         exit 0
     fi
 
