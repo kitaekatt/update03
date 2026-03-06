@@ -285,10 +285,12 @@ def _process_manifest(manifest, current_os, data_dir, plugin_root, log_entries, 
 
     # Check path entries
     for path_entry in manifest.get("path_entries", []):
+        expanded = os.path.expanduser(path_entry)
         result = check_path_entry(path_entry)
         if result.passed and not log_success:
-            continue
-        log_entries.append(f"{prefix}PATH {result.path}: {'ok' if result.passed else 'FAILED'} - {result.message}")
+            pass  # still need to fall through to ensure PATH update
+        else:
+            log_entries.append(f"{prefix}PATH {result.path}: {'ok' if result.passed else 'FAILED'} - {result.message}")
         if not result.passed:
             failures.append({
                 "type": "path",
@@ -296,6 +298,10 @@ def _process_manifest(manifest, current_os, data_dir, plugin_root, log_entries, 
                 "message": result.message,
                 "plugin": plugin_name,
             })
+        # Add to current process PATH so subsequent phases can find tools there
+        current_path = os.environ.get("PATH", "")
+        if os.path.normpath(expanded) not in [os.path.normpath(d) for d in current_path.split(os.pathsep)]:
+            os.environ["PATH"] = expanded + os.pathsep + current_path
 
     # Check venv
     venv_def = manifest.get("venv")
@@ -303,23 +309,40 @@ def _process_manifest(manifest, current_os, data_dir, plugin_root, log_entries, 
         check_imports = venv_def.get("check_imports", [])
         result = check_venv(data_dir, plugin_root, check_imports)
 
-        if not result.passed and result.remediation_cmd:
-            # Attempt auto-remediation
+        if not result.passed:
+            # Attempt auto-remediation — run uv sync with venv in data dir
             log_entries.append(f"{prefix}venv: not ready, attempting setup")
+            import shutil
             import subprocess as _sp
             venv_path = os.path.join(data_dir, ".venv")
-            env = dict(os.environ, UV_PROJECT_ENVIRONMENT=venv_path)
-            try:
-                _sp.run(
-                    result.remediation_cmd, shell=True, env=env,
-                    capture_output=True, timeout=120,
-                )
-                # Re-check after remediation
-                result = check_venv(data_dir, plugin_root, check_imports)
-                if result.passed:
-                    log_entries.append(f"{prefix}venv: created")
-            except (_sp.SubprocessError, OSError):
-                pass  # Fall through to failure handling
+
+            # Find uv — may have just been installed to ~/.local/bin
+            local_bin = os.path.expanduser("~/.local/bin")
+            uv_bin = shutil.which("uv")
+            if not uv_bin:
+                # Check ~/.local/bin directly (not yet in PATH)
+                for name in ("uv", "uv.exe", "uv.EXE"):
+                    candidate = os.path.join(local_bin, name)
+                    if os.path.isfile(candidate):
+                        uv_bin = candidate
+                        break
+
+            if uv_bin:
+                env = dict(os.environ, UV_PROJECT_ENVIRONMENT=venv_path)
+                # Ensure ~/.local/bin in PATH for uv's own child processes
+                if local_bin not in env.get("PATH", ""):
+                    env["PATH"] = local_bin + os.pathsep + env.get("PATH", "")
+                try:
+                    _sp.run(
+                        [uv_bin, "sync", "--project", plugin_root],
+                        env=env, capture_output=True, timeout=120,
+                    )
+                    # Re-check after remediation
+                    result = check_venv(data_dir, plugin_root, check_imports)
+                    if result.passed:
+                        log_entries.append(f"{prefix}venv: created")
+                except (_sp.SubprocessError, OSError):
+                    pass  # Fall through to failure handling
 
         if not result.passed or log_success:
             log_entries.append(f"{prefix}venv: {'ok' if result.passed else 'FAILED'} - {result.message}")

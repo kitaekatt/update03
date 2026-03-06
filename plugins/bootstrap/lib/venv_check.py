@@ -24,7 +24,7 @@ def check_venv(plugin_data_dir: str, plugin_root: str, check_imports: List[str])
         VenvCheckResult with pass/fail and optional remediation command
     """
     venv_path = os.path.join(plugin_data_dir, ".venv")
-    remediation = f"UV_PROJECT_ENVIRONMENT={venv_path} uv sync --project {plugin_root} --python-preference only-managed"
+    remediation = f"uv sync --project {plugin_root}"
 
     # Check venv directory exists
     if not os.path.isdir(venv_path):
