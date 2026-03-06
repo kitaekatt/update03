@@ -143,12 +143,12 @@ if [ -n "$PYTHON" ]; then
             WIN_SRC="$(cygpath -w "${STANDALONE_DIR}/python/python.exe")"
             WIN_DEST="$(cygpath -w "${HOME}/.local/bin/python3.exe")"
             powershell.exe -Command "New-Item -ItemType HardLink -Path '$WIN_DEST' -Target '$WIN_SRC' -Force" > /dev/null
-            log_entry "python3: restored link to ~/.local/bin/python3.exe"
+            log_entry "python3: restored hard link ~/.local/bin/python3.exe -> ${STANDALONE_DIR}/python/python.exe"
         fi
     else
         if [ ! -e "${HOME}/.local/bin/python3" ] && [ -x "${STANDALONE_DIR}/python/install/bin/python3" ]; then
             ln -sf "${STANDALONE_DIR}/python/install/bin/python3" "${HOME}/.local/bin/python3"
-            log_entry "python3: restored link to ~/.local/bin/python3"
+            log_entry "python3: restored symlink ~/.local/bin/python3 -> ${STANDALONE_DIR}/python/install/bin/python3"
         fi
     fi
 fi
