@@ -473,6 +473,34 @@ def _process_manifest(manifest, current_os, data_dir, plugin_root, log_entries, 
                     "plugin": plugin_name,
                 })
 
+    # Check marketplace entries
+    for mkt_def in manifest.get("marketplaces", []):
+        mkt_name = mkt_def.get("name", "")
+        source_url = mkt_def.get("source", "")
+        if not mkt_name or not source_url:
+            continue
+
+        from marketplace_lifecycle import check_marketplace_exists, add_marketplace, update_marketplace
+
+        mkt_result = check_marketplace_exists(mkt_name)
+        if mkt_result.passed:
+            if log_success:
+                log_entries.append(f"{prefix}marketplace {mkt_name}: ok")
+        else:
+            # Auto-add marketplace via CLI
+            log_entries.append(f"{prefix}marketplace {mkt_name}: not found, adding")
+            add_result = add_marketplace(source_url, mkt_name)
+            if add_result.passed:
+                log_entries.append(f"{prefix}marketplace {mkt_name}: added")
+            else:
+                log_entries.append(f"{prefix}marketplace {mkt_name}: FAILED - {add_result.message}")
+                failures.append({
+                    "type": "marketplace",
+                    "name": mkt_name,
+                    "message": add_result.message,
+                    "plugin": plugin_name,
+                })
+
     # Check plugin entries
     for plugin_def in manifest.get("plugins", []):
         plugin_ref = plugin_def.get("ref", "")
@@ -480,39 +508,29 @@ def _process_manifest(manifest, current_os, data_dir, plugin_root, log_entries, 
         if not plugin_ref:
             continue
 
-        from plugin_lifecycle import check_plugin_registered, check_plugin_enabled
+        from marketplace_lifecycle import check_plugin_installed, install_plugin
+        from plugin_lifecycle import check_plugin_enabled
         from plugin_resolve import parse_plugin_ref
-
-        # Determine registry path — use global registry for cross-marketplace refs
-        ref_marketplace, _ = parse_plugin_ref(plugin_ref)
-        plugins_dir = os.path.dirname(plugin_root)
-        local_reg_path = os.path.join(plugins_dir, "installed_plugins.json")
-
-        # Detect current marketplace name from the plugins dir path
-        current_marketplace = os.path.basename(os.path.dirname(plugins_dir))
-        # For plugin cache layout: ~/.claude/plugins/cache/<marketplace>/<plugin>/
-        # For dev layout: ~/Dev/<marketplace>/plugins/
-        # The marketplace name is the grandparent of plugins_dir in cache,
-        # or the parent dir name in dev layout. We check if the ref's marketplace
-        # matches by comparing against the local registry content.
-        if ref_marketplace and ref_marketplace != _detect_marketplace_name(plugins_dir):
-            # Cross-marketplace ref — use global Claude Code registry
-            reg_path = os.path.expanduser("~/.claude/plugins/installed_plugins.json")
-        else:
-            reg_path = local_reg_path
 
         config_path = os.path.join(os.path.dirname(data_dir), "bootstrap", "config.json")
 
-        reg_result = check_plugin_registered(reg_path, plugin_ref)
-        if not reg_result.passed:
-            log_entries.append(f"{prefix}plugin {plugin_ref}: not registered")
-            failures.append({
-                "type": "plugin",
-                "ref": plugin_ref,
-                "message": "not registered in installed_plugins.json",
-                "plugin": plugin_name,
-            })
-            continue
+        # Check if plugin is installed (global registry, handles both ref formats)
+        install_result = check_plugin_installed(plugin_ref)
+        if not install_result.passed:
+            # Auto-install via CLI
+            log_entries.append(f"{prefix}plugin {plugin_ref}: not installed, installing")
+            inst = install_plugin(plugin_ref)
+            if inst.passed:
+                log_entries.append(f"{prefix}plugin {plugin_ref}: installed")
+            else:
+                log_entries.append(f"{prefix}plugin {plugin_ref}: FAILED - {inst.message}")
+                failures.append({
+                    "type": "plugin",
+                    "ref": plugin_ref,
+                    "message": inst.message,
+                    "plugin": plugin_name,
+                })
+                continue
 
         if enabled:
             en_result = check_plugin_enabled(config_path, plugin_ref)
@@ -748,8 +766,10 @@ def emit_failure_response(failures, current_os, log_content):
             agent_lines.append(f"{i}. Script issue{plugin_tag}: {f.get('message', 'see log')}")
         elif f["type"] == "json":
             agent_lines.append(f"{i}. Merge JSON entries into {f['target']}{plugin_tag}: {f['message']}")
+        elif f["type"] == "marketplace":
+            agent_lines.append(f"{i}. Add marketplace {f['name']}{plugin_tag}: {f['message']}")
         elif f["type"] == "plugin":
-            agent_lines.append(f"{i}. Register plugin {f['ref']}{plugin_tag}: {f['message']}")
+            agent_lines.append(f"{i}. Install plugin {f['ref']}{plugin_tag}: {f['message']}")
 
     agent_lines.append("\nAfter fixing, type 'fix-all' or 'fixed' to re-run bootstrap, or restart Claude Code.")
     agent_msg = "\n".join(agent_lines)

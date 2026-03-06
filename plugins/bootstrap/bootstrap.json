@@ -29,6 +29,12 @@
       "preserve_fields": ["lastUpdated", "installLocation"]
     }
   ],
+  "marketplaces": [
+    {
+      "name": "plugins-kit",
+      "source": "https://github.com/kitaekatt/plugins-kit.git"
+    }
+  ],
   "plugins": [
     {"ref": "plugins-kit:bootstrap", "enabled": true}
   ]
