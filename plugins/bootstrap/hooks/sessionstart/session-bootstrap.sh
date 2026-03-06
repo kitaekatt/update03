@@ -95,12 +95,18 @@ if [ -n "$FLAG_VERBOSE" ] || [ -n "$FLAG_CONSOLE" ]; then
     LOG_SUCCESS_SHELL="true"
 fi
 
-# --- Ensure ~/.local/bin is at front of PATH ---
-# Tools installed by bootstrap (uv, python3) land here. Prepend so they're found first.
+# --- Ensure required dirs are at front of PATH ---
+# ~/.local/bin: tools installed by bootstrap (uv, git wrappers, etc.)
+# ~/.local/share/python-standalone/python: standalone Python + DLLs (Windows needs this for DLL resolution)
 LOCAL_BIN="${HOME}/.local/bin"
+STANDALONE_PYTHON_BIN="${HOME}/.local/share/python-standalone/python"
 case ":${PATH}:" in
-    *":${LOCAL_BIN}:"*) ;;  # already in PATH
+    *":${LOCAL_BIN}:"*) ;;
     *) export PATH="${LOCAL_BIN}:${PATH}" ;;
+esac
+case ":${PATH}:" in
+    *":${STANDALONE_PYTHON_BIN}:"*) ;;
+    *) export PATH="${STANDALONE_PYTHON_BIN}:${PATH}" ;;
 esac
 
 # --- Ensure Python is installed in ~/.local/bin ---
@@ -112,38 +118,32 @@ OS="$(uname -s)"
 STANDALONE_DIR="${HOME}/.local/share/python-standalone"
 
 if [[ "$OS" == MINGW* ]] || [[ "$OS" == MSYS* ]]; then
-    WANT_PYTHON="${LOCAL_BIN}/python3.exe"
+    # Windows: use standalone executable directly — no hard link needed since the
+    # standalone dir is on PATH (DLLs are co-located with the executable there).
+    WANT_PYTHON="${STANDALONE_DIR}/python/python.exe"
     STANDALONE_PYTHON="${STANDALONE_DIR}/python/python.exe"
 else
     WANT_PYTHON="${LOCAL_BIN}/python3"
     STANDALONE_PYTHON="${STANDALONE_DIR}/python/install/bin/python3"
 fi
 
-# Check 1: ~/.local/bin/python3 exists and works
+# Check 1: our python is in place and works
 if [ -x "$WANT_PYTHON" ] && "$WANT_PYTHON" -c "import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)" 2>/dev/null; then
     PYTHON="$WANT_PYTHON"
     if [ "$LOG_SUCCESS_SHELL" = "true" ]; then
         log_entry "python3: ok - found at $WANT_PYTHON"
     fi
-# Check 2: standalone installed but link in ~/.local/bin missing — restore it
-elif [ -x "$STANDALONE_PYTHON" ] && "$STANDALONE_PYTHON" -c "import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)" 2>/dev/null; then
+# Check 2 (Unix only): standalone installed but ~/.local/bin symlink missing — restore it
+elif [[ "$OS" != MINGW* ]] && [[ "$OS" != MSYS* ]] && [ -x "$STANDALONE_PYTHON" ] && "$STANDALONE_PYTHON" -c "import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)" 2>/dev/null; then
     mkdir -p "$LOCAL_BIN"
-    if [[ "$OS" == MINGW* ]] || [[ "$OS" == MSYS* ]]; then
-        WIN_SRC="$(cygpath -w "$STANDALONE_PYTHON")"
-        WIN_DEST="$(cygpath -w "$WANT_PYTHON")"
-        powershell.exe -Command "New-Item -ItemType HardLink -Path '$WIN_DEST' -Target '$WIN_SRC' -Force" > /dev/null
-        log_entry "python3: restored hard link $WANT_PYTHON -> $STANDALONE_PYTHON"
-        PYTHON="$STANDALONE_PYTHON"  # Use direct path; hard link has known DLL issue (see Task #1)
-    else
-        ln -sf "$STANDALONE_PYTHON" "$WANT_PYTHON"
-        log_entry "python3: restored symlink $WANT_PYTHON -> $STANDALONE_PYTHON"
-        PYTHON="$WANT_PYTHON"
-    fi
+    ln -sf "$STANDALONE_PYTHON" "$WANT_PYTHON"
+    log_entry "python3: restored symlink $WANT_PYTHON -> $STANDALONE_PYTHON"
+    PYTHON="$WANT_PYTHON"
 fi
 
 # Check 3: nothing works — download and install standalone
 if [ -z "$PYTHON" ]; then
-    log_entry "python3: not in ~/.local/bin, installing standalone"
+    log_entry "python3: not installed, downloading standalone"
 
     PY_VERSION="3.12.9"
     RELEASE_TAG="20250317"
@@ -176,14 +176,12 @@ if [ -z "$PYTHON" ]; then
         exit 0
     fi
 
-    mkdir -p "$LOCAL_BIN"
     if [[ "$OS" == MINGW* ]] || [[ "$OS" == MSYS* ]]; then
-        WIN_SRC="$(cygpath -w "$STANDALONE_PYTHON")"
-        WIN_DEST="$(cygpath -w "$WANT_PYTHON")"
-        powershell.exe -Command "New-Item -ItemType HardLink -Path '$WIN_DEST' -Target '$WIN_SRC' -Force" > /dev/null
-        log_entry "python3: installed standalone, linked to $WANT_PYTHON"
-        PYTHON="$STANDALONE_PYTHON"  # Use direct path; hard link has known DLL issue (see Task #1)
+        # Windows: standalone exe is on PATH via STANDALONE_PYTHON_BIN — no symlink needed
+        log_entry "python3: installed standalone at $STANDALONE_PYTHON"
+        PYTHON="$STANDALONE_PYTHON"
     else
+        mkdir -p "$LOCAL_BIN"
         ln -sf "$STANDALONE_PYTHON" "$WANT_PYTHON"
         log_entry "python3: installed standalone, linked to $WANT_PYTHON"
         PYTHON="$WANT_PYTHON"

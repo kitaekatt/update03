@@ -17,7 +17,7 @@
       }
     }
   ],
-  "path_entries": ["~/.local/bin"],
+  "path_entries": ["~/.local/bin", "~/.local/share/python-standalone/python"],
   "venv": {
     "check_imports": ["yaml"]
   },
