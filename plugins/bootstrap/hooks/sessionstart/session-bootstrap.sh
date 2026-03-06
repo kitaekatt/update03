@@ -103,93 +103,63 @@ case ":${PATH}:" in
     *) export PATH="${LOCAL_BIN}:${PATH}" ;;
 esac
 
-# --- Find Python 3 ---
-# Validate each candidate by execution, not just PATH presence.
-# This handles Windows Store stubs (python3 in PATH but exits 126).
-# Include the standalone install path directly — hard links in ~/.local/bin
-# can't find stdlib, so we check the original install location.
+# --- Ensure Python is installed in ~/.local/bin ---
+# We always use our standalone Python in ~/.local/bin. System Python is not used.
+# Check if it's in place and works; install standalone if not.
 
 PYTHON=""
+OS="$(uname -s)"
 STANDALONE_DIR="${HOME}/.local/share/python-standalone"
-CANDIDATES=(python3 python)
-# Add standalone install paths (platform-dependent)
-if [ -x "${STANDALONE_DIR}/python/python.exe" ]; then
-    CANDIDATES+=("${STANDALONE_DIR}/python/python.exe")
-elif [ -x "${STANDALONE_DIR}/python/install/bin/python3" ]; then
-    CANDIDATES+=("${STANDALONE_DIR}/python/install/bin/python3")
+
+if [[ "$OS" == MINGW* ]] || [[ "$OS" == MSYS* ]]; then
+    WANT_PYTHON="${LOCAL_BIN}/python3.exe"
+    STANDALONE_PYTHON="${STANDALONE_DIR}/python/python.exe"
+else
+    WANT_PYTHON="${LOCAL_BIN}/python3"
+    STANDALONE_PYTHON="${STANDALONE_DIR}/python/install/bin/python3"
 fi
 
-for candidate in "${CANDIDATES[@]}"; do
-    if [ -x "$candidate" ] || command -v "$candidate" &>/dev/null; then
-        if "$candidate" -c "import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)" 2>/dev/null; then
-            PYTHON="$candidate"
-            PYTHON_PATH="$(command -v "$candidate" 2>/dev/null || echo "$candidate")"
-            break
-        fi
+# Check 1: ~/.local/bin/python3 exists and works
+if [ -x "$WANT_PYTHON" ] && "$WANT_PYTHON" -c "import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)" 2>/dev/null; then
+    PYTHON="$WANT_PYTHON"
+    if [ "$LOG_SUCCESS_SHELL" = "true" ]; then
+        log_entry "python3: ok - found at $WANT_PYTHON"
     fi
-done
-
-# Log python3 success if found and logging enabled
-if [ -n "$PYTHON" ] && [ "$LOG_SUCCESS_SHELL" = "true" ]; then
-    log_entry "python3: ok - found at $PYTHON_PATH"
-fi
-
-# Ensure ~/.local/bin symlink exists if Python was found at standalone path
-if [ -n "$PYTHON" ]; then
-    mkdir -p "${HOME}/.local/bin"
-    OS="$(uname -s)"
+# Check 2: standalone installed but link in ~/.local/bin missing — restore it
+elif [ -x "$STANDALONE_PYTHON" ] && "$STANDALONE_PYTHON" -c "import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)" 2>/dev/null; then
+    mkdir -p "$LOCAL_BIN"
     if [[ "$OS" == MINGW* ]] || [[ "$OS" == MSYS* ]]; then
-        if [ ! -e "${HOME}/.local/bin/python3.exe" ] && [ -x "${STANDALONE_DIR}/python/python.exe" ]; then
-            WIN_SRC="$(cygpath -w "${STANDALONE_DIR}/python/python.exe")"
-            WIN_DEST="$(cygpath -w "${HOME}/.local/bin/python3.exe")"
-            powershell.exe -Command "New-Item -ItemType HardLink -Path '$WIN_DEST' -Target '$WIN_SRC' -Force" > /dev/null
-            log_entry "python3: restored hard link ~/.local/bin/python3.exe -> ${STANDALONE_DIR}/python/python.exe"
-        fi
+        WIN_SRC="$(cygpath -w "$STANDALONE_PYTHON")"
+        WIN_DEST="$(cygpath -w "$WANT_PYTHON")"
+        powershell.exe -Command "New-Item -ItemType HardLink -Path '$WIN_DEST' -Target '$WIN_SRC' -Force" > /dev/null
+        log_entry "python3: restored hard link $WANT_PYTHON -> $STANDALONE_PYTHON"
+        PYTHON="$STANDALONE_PYTHON"  # Use direct path; hard link has known DLL issue (see Task #1)
     else
-        if [ ! -e "${HOME}/.local/bin/python3" ] && [ -x "${STANDALONE_DIR}/python/install/bin/python3" ]; then
-            ln -sf "${STANDALONE_DIR}/python/install/bin/python3" "${HOME}/.local/bin/python3"
-            log_entry "python3: restored symlink ~/.local/bin/python3 -> ${STANDALONE_DIR}/python/install/bin/python3"
-        fi
+        ln -sf "$STANDALONE_PYTHON" "$WANT_PYTHON"
+        log_entry "python3: restored symlink $WANT_PYTHON -> $STANDALONE_PYTHON"
+        PYTHON="$WANT_PYTHON"
     fi
 fi
 
-# --- Self-bootstrap Python via python-build-standalone ---
-# If no valid Python 3 is found, download a standalone build and install it
-# to the plugin data directory with a symlink in ~/.local/bin.
-
+# Check 3: nothing works — download and install standalone
 if [ -z "$PYTHON" ]; then
-    log_entry "python3: not found in PATH, installing standalone"
+    log_entry "python3: not in ~/.local/bin, installing standalone"
 
     PY_VERSION="3.12.9"
     RELEASE_TAG="20250317"
-    INSTALL_DIR="${HOME}/.local/share/python-standalone"
-
-    # Detect platform
-    OS="$(uname -s)"
     ARCH="$(uname -m)"
 
-    # Map to python-build-standalone target triple
     if [[ "$OS" == "Darwin" ]]; then
-        if [[ "$ARCH" == "arm64" ]]; then
-            TRIPLE="aarch64-apple-darwin"
-        else
-            TRIPLE="x86_64-apple-darwin"
-        fi
+        [[ "$ARCH" == "arm64" ]] && TRIPLE="aarch64-apple-darwin" || TRIPLE="x86_64-apple-darwin"
     elif [[ "$OS" == "Linux" ]]; then
-        if [[ "$ARCH" == "aarch64" ]]; then
-            TRIPLE="aarch64-unknown-linux-gnu"
-        else
-            TRIPLE="x86_64-unknown-linux-gnu"
-        fi
+        [[ "$ARCH" == "aarch64" ]] && TRIPLE="aarch64-unknown-linux-gnu" || TRIPLE="x86_64-unknown-linux-gnu"
     elif [[ "$OS" == MINGW* ]] || [[ "$OS" == MSYS* ]]; then
         TRIPLE="x86_64-pc-windows-msvc"
     else
         log_entry "python3: FAILED - unsupported platform for auto-install ($OS)"
         flush_log
         HOOK_OUTPUT_EMITTED=1
-        cat <<'EOF'
-{"continue": true, "suppressOutput": false, "systemMessage": "${BOOTSTRAP_LABEL} -> python3 not found and platform not supported for auto-install. Install Python 3 manually.", "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "${BOOTSTRAP_LABEL} -> CRITICAL: python3 not found. Unsupported platform for auto-install. Install Python 3.x manually."}}
-EOF
+        printf '{"continue": true, "suppressOutput": false, "systemMessage": "%s -> python3 not found and platform not supported for auto-install. Install Python 3 manually.", "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "%s -> CRITICAL: python3 not found. Unsupported platform. Install Python 3.x manually."}}\n' "${BOOTSTRAP_LABEL}" "${BOOTSTRAP_LABEL}"
         exit 0
     fi
 
@@ -197,32 +167,26 @@ EOF
     URL="https://github.com/indygreg/python-build-standalone/releases/download/${RELEASE_TAG}/${ARCHIVE}"
 
     log_entry "python3: downloading $ARCHIVE"
-
-    # Download and extract
-    mkdir -p "$INSTALL_DIR"
-    if ! curl -LsSf "$URL" | tar xz -C "$INSTALL_DIR" 2>/dev/null; then
+    mkdir -p "$STANDALONE_DIR"
+    if ! curl -LsSf "$URL" | tar xz -C "$STANDALONE_DIR" 2>/dev/null; then
         log_entry "python3: FAILED - download error"
         flush_log
         HOOK_OUTPUT_EMITTED=1
-        cat <<'EOF'
-{"continue": true, "suppressOutput": false, "systemMessage": "${BOOTSTRAP_LABEL} -> python3 not found and auto-install failed (download error). Install Python 3 manually.", "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "${BOOTSTRAP_LABEL} -> CRITICAL: python3 not found. Auto-install download failed. Install Python 3.x manually."}}
-EOF
+        printf '{"continue": true, "suppressOutput": false, "systemMessage": "%s -> python3 auto-install failed (download error). Install Python 3 manually.", "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "%s -> CRITICAL: python3 not found. Auto-install download failed. Install Python 3.x manually."}}\n' "${BOOTSTRAP_LABEL}" "${BOOTSTRAP_LABEL}"
         exit 0
     fi
 
-    # Make standalone Python available for future sessions via ~/.local/bin
-    mkdir -p "${HOME}/.local/bin"
+    mkdir -p "$LOCAL_BIN"
     if [[ "$OS" == MINGW* ]] || [[ "$OS" == MSYS* ]]; then
-        PYTHON="${INSTALL_DIR}/python/python.exe"
-        # Windows: hard link via PowerShell (no elevation needed; same drive assumed)
-        WIN_SRC="$(cygpath -w "$PYTHON")"
-        WIN_DEST="$(cygpath -w "${HOME}/.local/bin/python3.exe")"
+        WIN_SRC="$(cygpath -w "$STANDALONE_PYTHON")"
+        WIN_DEST="$(cygpath -w "$WANT_PYTHON")"
         powershell.exe -Command "New-Item -ItemType HardLink -Path '$WIN_DEST' -Target '$WIN_SRC' -Force" > /dev/null
-        log_entry "python3: installed $PYTHON, linked to ~/.local/bin/python3.exe"
+        log_entry "python3: installed standalone, linked to $WANT_PYTHON"
+        PYTHON="$STANDALONE_PYTHON"  # Use direct path; hard link has known DLL issue (see Task #1)
     else
-        PYTHON="${INSTALL_DIR}/python/install/bin/python3"
-        ln -sf "$PYTHON" "${HOME}/.local/bin/python3"
-        log_entry "python3: installed $PYTHON, linked to ~/.local/bin/python3"
+        ln -sf "$STANDALONE_PYTHON" "$WANT_PYTHON"
+        log_entry "python3: installed standalone, linked to $WANT_PYTHON"
+        PYTHON="$WANT_PYTHON"
     fi
 fi
 
