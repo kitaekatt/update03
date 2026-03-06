@@ -1,6 +1,6 @@
 {
   "name": "bootstrap",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Seed bootstrap plugin — installs plugins-kit marketplace and bootstrap plugin on team machines",
   "author": {"name": "Christina"},
   "keywords": ["bootstrap", "auto-update", "seed"]

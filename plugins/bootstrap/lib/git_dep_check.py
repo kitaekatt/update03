@@ -89,6 +89,34 @@ def check_git_dep(
     )
 
 
+def clone_git_dep(url: str, branch: str, target_path: str, sparse_paths=None) -> tuple:
+    """Clone a git dependency. Returns (success, message)."""
+    cmd = _build_clone_cmd(url, branch, target_path, sparse_paths)
+    try:
+        result = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode == 0:
+            return True, f"cloned to {target_path}"
+        return False, result.stderr.strip() or "clone failed"
+    except (subprocess.SubprocessError, OSError) as e:
+        return False, str(e)
+
+
+def pull_git_dep(target_path: str) -> tuple:
+    """Pull latest changes in an existing git dep. Returns (success, message)."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", target_path, "pull"],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode == 0:
+            return True, "pulled latest"
+        return False, result.stderr.strip() or "pull failed"
+    except (subprocess.SubprocessError, OSError) as e:
+        return False, str(e)
+
+
 def _extract_repo_name(url: str) -> str:
     """Extract repository name from URL."""
     # Handle URLs like https://github.com/octocat/Hello-World or .git suffix

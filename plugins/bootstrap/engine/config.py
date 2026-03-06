@@ -51,7 +51,6 @@ def migrate_config(config: dict) -> dict:
     # Migration from v0 to v1: add missing fields
     if version < 1:
         migrated.setdefault("enabled_plugins", [])
-        migrated.setdefault("log_level", "info")
         migrated["schema_version"] = 1
 
     # Migration from v1 to v2: add log_success settings

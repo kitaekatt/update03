@@ -360,13 +360,10 @@ def _process_manifest(manifest, current_os, data_dir, plugin_root, action_entrie
         if result.passed:
             ok_entries.append(f"{prefix}PATH {result.path}: ok - {result.message}")
         else:
-            action_entries.append(f"{prefix}PATH {result.path}: FAILED - {result.message}")
-            failures.append({
-                "type": "path",
-                "path": result.path,
-                "message": result.message,
-                "plugin": plugin_name,
-            })
+            # Attempt persistent remediation: add to shell RC files
+            from path_check import add_path_to_shell_config
+            ok, msg = add_path_to_shell_config(path_entry)
+            action_entries.append(f"{prefix}PATH {result.path}: not in PATH, added to shell config - {msg}")
         # Add to current process PATH so subsequent phases can find tools there
         current_path = os.environ.get("PATH", "")
         if os.path.normpath(expanded) not in [os.path.normpath(d) for d in current_path.split(os.pathsep)]:
@@ -436,14 +433,29 @@ def _process_manifest(manifest, current_os, data_dir, plugin_root, action_entrie
         if result.passed:
             ok_entries.append(f"{prefix}git {result.repo_name}: ok - {result.message}")
         else:
-            action_entries.append(f"{prefix}git {result.repo_name}: FAILED - {result.message}")
-            failures.append({
-                "type": "git_dep",
-                "name": result.repo_name,
-                "message": result.message,
-                "remediation_cmd": result.remediation_cmd,
-                "plugin": plugin_name,
-            })
+            from git_dep_check import clone_git_dep, pull_git_dep
+            import os as _os
+            target_path = result.target_path
+            if not _os.path.isdir(target_path):
+                # Not cloned — clone it
+                action_entries.append(f"{prefix}git {result.repo_name}: not cloned, cloning from {dep_def['url']}")
+                ok, msg = clone_git_dep(dep_def["url"], dep_def["branch"], target_path, dep_def.get("sparse_paths"))
+            else:
+                # Exists but wrong branch or broken — pull
+                action_entries.append(f"{prefix}git {result.repo_name}: {result.message}, pulling")
+                ok, msg = pull_git_dep(target_path)
+
+            if ok:
+                action_entries.append(f"{prefix}git {result.repo_name}: {msg}")
+            else:
+                action_entries.append(f"{prefix}git {result.repo_name}: FAILED - {msg}")
+                failures.append({
+                    "type": "git_dep",
+                    "name": result.repo_name,
+                    "message": msg,
+                    "remediation_cmd": result.remediation_cmd,
+                    "plugin": plugin_name,
+                })
 
     # Variable resolution for subsequent phases
     from var_resolve import build_variables, resolve_vars
@@ -596,10 +608,37 @@ def _process_manifest(manifest, current_os, data_dir, plugin_root, action_entrie
                 })
                 continue
 
-        from marketplace_lifecycle import enable_plugin_in_claude, disable_plugin_in_claude, check_plugin_enabled
+        from marketplace_lifecycle import enable_plugin_in_claude, disable_plugin_in_claude, check_plugin_enabled, check_plugin_version, update_plugin
 
         if enabled:
-            ok_entries.append(f"{prefix}plugin {plugin_ref}: ok")
+            # Check if version is up to date (only for already-installed plugins)
+            if install_result.passed:
+                ver_result = check_plugin_version(plugin_ref)
+                if not ver_result.up_to_date:
+                    action_entries.append(f"{prefix}plugin {plugin_ref}: outdated ({ver_result.message}), running `claude plugin update {cli_ref}`")
+                    upd_result = update_plugin(plugin_ref)
+                    if upd_result.passed:
+                        action_entries.append(f"{prefix}plugin {plugin_ref}: updated to {ver_result.latest_version}")
+                    else:
+                        action_entries.append(f"{prefix}plugin {plugin_ref}: update failed - {upd_result.message}")
+
+            # Check enabled state in settings.json
+            enabled_result = check_plugin_enabled(plugin_ref)
+            if enabled_result.passed:
+                ok_entries.append(f"{prefix}plugin {plugin_ref}: ok")
+            else:
+                action_entries.append(f"{prefix}plugin {plugin_ref}: installed but not enabled, running `claude plugin enable {cli_ref}`")
+                en_result = enable_plugin_in_claude(plugin_ref)
+                if en_result.passed:
+                    action_entries.append(f"{prefix}plugin {plugin_ref}: enabled (added '{cli_ref}' to settings.json enabledPlugins)")
+                else:
+                    action_entries.append(f"{prefix}plugin {plugin_ref}: enable failed - {en_result.message}")
+                    failures.append({
+                        "type": "plugin",
+                        "ref": plugin_ref,
+                        "message": en_result.message,
+                        "plugin": plugin_name,
+                    })
         else:
             # Only disable if currently enabled (check before acting)
             enabled_result = check_plugin_enabled(plugin_ref)

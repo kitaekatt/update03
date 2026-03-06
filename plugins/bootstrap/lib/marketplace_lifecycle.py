@@ -17,6 +17,14 @@ class LifecycleResult(NamedTuple):
     message: str
 
 
+class VersionCheckResult(NamedTuple):
+    up_to_date: bool
+    ref: str
+    installed_version: str
+    latest_version: str  # empty string if unknown
+    message: str
+
+
 def _find_claude_cli() -> Optional[str]:
     """Find the claude CLI binary."""
     return shutil.which("claude")
@@ -163,6 +171,81 @@ def _to_cli_ref(plugin_ref: str) -> str:
         marketplace, plugin_name = plugin_ref.split(":", 1)
         return f"{plugin_name}@{marketplace}"
     return plugin_ref
+
+
+def check_plugin_version(plugin_ref: str) -> VersionCheckResult:
+    """Check if the installed plugin version matches the latest marketplace version.
+
+    Returns up_to_date=True if current or version cannot be determined.
+    Returns up_to_date=False only when a definitive newer version is available.
+    """
+    cli_ref = _to_cli_ref(plugin_ref)
+    marketplace = plugin_ref.split(":", 1)[0] if ":" in plugin_ref else None
+    plugin_name = plugin_ref.split(":", 1)[1] if ":" in plugin_ref else plugin_ref
+
+    # Get installed version
+    ip_path = os.path.expanduser("~/.claude/plugins/installed_plugins.json")
+    installed_version = ""
+    try:
+        with open(ip_path, "r") as f:
+            data = json.load(f)
+        installs = data.get("plugins", {}).get(cli_ref, [])
+        if installs:
+            installed_version = installs[0].get("version", "")
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+
+    if not installed_version:
+        return VersionCheckResult(
+            up_to_date=True, ref=plugin_ref,
+            installed_version="", latest_version="",
+            message="not installed (skipping version check)",
+        )
+
+    if not marketplace:
+        return VersionCheckResult(
+            up_to_date=True, ref=plugin_ref,
+            installed_version=installed_version, latest_version="",
+            message=f"version {installed_version} (no marketplace)",
+        )
+
+    # Get latest version from marketplace index
+    km_path = os.path.expanduser("~/.claude/plugins/known_marketplaces.json")
+    latest_version = ""
+    try:
+        with open(km_path, "r") as f:
+            km_data = json.load(f)
+        install_location = km_data.get(marketplace, {}).get("installLocation", "")
+        if install_location:
+            mkt_path = os.path.join(install_location, ".claude-plugin", "marketplace.json")
+            with open(mkt_path, "r") as f:
+                mkt_data = json.load(f)
+            for entry in mkt_data.get("plugins", []):
+                if entry.get("name") == plugin_name:
+                    latest_version = entry.get("version", "")
+                    break
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+
+    if not latest_version:
+        return VersionCheckResult(
+            up_to_date=True, ref=plugin_ref,
+            installed_version=installed_version, latest_version="",
+            message=f"version {installed_version} (marketplace version unknown)",
+        )
+
+    if installed_version == latest_version:
+        return VersionCheckResult(
+            up_to_date=True, ref=plugin_ref,
+            installed_version=installed_version, latest_version=latest_version,
+            message=f"version {installed_version} (current)",
+        )
+
+    return VersionCheckResult(
+        up_to_date=False, ref=plugin_ref,
+        installed_version=installed_version, latest_version=latest_version,
+        message=f"installed {installed_version}, latest {latest_version}",
+    )
 
 
 def check_plugin_enabled(plugin_ref: str) -> LifecycleResult:

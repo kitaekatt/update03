@@ -1,7 +1,6 @@
 {
   "schema_version": 3,
   "enabled_plugins": [],
-  "log_level": "info",
   "log_success_shell": false,
   "log_success_checks": false
 }
