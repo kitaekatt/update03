@@ -54,10 +54,15 @@ def main():
     all_failures = []
     all_log_entries = []
 
+    # Detect marketplace name for log prefixes
+    plugins_dir = os.path.dirname(plugin_root)
+    marketplace_name = _detect_marketplace_name(plugins_dir)
+    bootstrap_label = f"{marketplace_name}:bootstrap" if marketplace_name else "bootstrap"
+
     # Step 3: Self-bootstrap (own manifest)
     if self_cached:
         if log_success:
-            all_log_entries.append("bootstrap: cached")
+            all_log_entries.append(f"{bootstrap_label}: cached")
     else:
         with open(manifest_path, "r") as f:
             manifest = json.load(f)
@@ -96,8 +101,6 @@ def main():
                 write_cache(data_dir, [user_manifest_path])
 
     # Step 4: Process enabled plugins
-    # Compute marketplace root: bootstrap is at <marketplace>/plugins/bootstrap
-    plugins_dir = os.path.dirname(plugin_root)
     registry_path = os.path.join(plugins_dir, "installed_plugins.json")
 
     enabled = list_enabled_plugins(config, registry_path, plugins_dir)
@@ -151,9 +154,9 @@ def main():
     # Step 7: Emit results — show new log entries to user (since last display)
     log_content = _read_new_log_entries(data_dir)
     if all_failures:
-        emit_failure_response(all_failures, current_os, log_content)
+        emit_failure_response(all_failures, current_os, log_content, label=bootstrap_label)
     elif log_content:
-        emit_success_response(log_content)
+        emit_success_response(log_content, label=bootstrap_label)
     # else: nothing to show — silent exit
 
 
@@ -725,12 +728,12 @@ def _extract_timestamp(line):
     return ""
 
 
-def emit_success_response(log_content):
+def emit_success_response(log_content, label="bootstrap"):
     """Emit hook JSON showing bootstrap log to user."""
     response = {
         "continue": True,
         "suppressOutput": False,
-        "systemMessage": f"bootstrap:\n{log_content}",
+        "systemMessage": f"{label}:\n{log_content}",
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
         },
@@ -738,9 +741,9 @@ def emit_success_response(log_content):
     print(json.dumps(response))
 
 
-def emit_failure_response(failures, current_os, log_content):
+def emit_failure_response(failures, current_os, log_content, label="bootstrap"):
     """Emit hook JSON with fix-all directives to stdout."""
-    agent_lines = ["bootstrap -> Setup issues found. Fix in order:\n"]
+    agent_lines = [f"{label} -> Setup issues found. Fix in order:\n"]
 
     for i, f in enumerate(failures, 1):
         plugin_tag = f" [{f['plugin']}]" if f.get("plugin", "bootstrap") != "bootstrap" else ""
@@ -773,7 +776,7 @@ def emit_failure_response(failures, current_os, log_content):
     response = {
         "continue": True,
         "suppressOutput": False,
-        "systemMessage": f"bootstrap:\n{log_content}",
+        "systemMessage": f"{label}:\n{log_content}",
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
             "additionalContext": agent_msg,

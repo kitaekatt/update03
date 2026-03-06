@@ -12,7 +12,6 @@ set -uo pipefail
 
 # Safety net: if the script exits without producing output, emit minimal JSON
 HOOK_OUTPUT_EMITTED=""
-trap '[ -z "$HOOK_OUTPUT_EMITTED" ] && echo "{\"continue\": true, \"suppressOutput\": false, \"systemMessage\": \"bootstrap: shell error\", \"hookSpecificOutput\": {\"hookEventName\": \"SessionStart\"}}"' EXIT
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -21,7 +20,11 @@ PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # Works for both dev layout (~/Dev/<marketplace>/plugins/bootstrap/)
 # and cache layout (~/.claude/plugins/cache/<marketplace>/bootstrap/<version>/).
 MARKETPLACE_NAME="$(basename "$(cd "$PLUGIN_ROOT/../.." && pwd)")"
+BOOTSTRAP_LABEL="${MARKETPLACE_NAME}:bootstrap"
 PLUGIN_DATA="${HOME}/.claude/plugins/data/${MARKETPLACE_NAME}/bootstrap"
+
+# Set trap after BOOTSTRAP_LABEL is defined so variable expands correctly
+trap '[ -z "$HOOK_OUTPUT_EMITTED" ] && echo "{\"continue\": true, \"suppressOutput\": false, \"systemMessage\": \"'"${BOOTSTRAP_LABEL}"': shell error\", \"hookSpecificOutput\": {\"hookEventName\": \"SessionStart\"}}"' EXIT
 
 # --- Capture hook input from stdin and record start time ---
 HOOK_INPUT=$(cat)
@@ -55,13 +58,13 @@ flush_log() {
 }
 
 # --- Read log_success_shell from config (pre-Python, so use grep) ---
-LOG_SUCCESS_SHELL="true"
+LOG_SUCCESS_SHELL="false"
 CONFIG_FILE="$PLUGIN_DATA/config.json"
 if [ -f "$CONFIG_FILE" ]; then
     # Extract value: grep for the key, strip to true/false
-    val=$(grep -o '"log_success_shell"[[:space:]]*:[[:space:]]*[a-z]*' "$CONFIG_FILE" 2>/dev/null | grep -o '[a-z]*$' || echo "true")
-    if [ "$val" = "false" ]; then
-        LOG_SUCCESS_SHELL="false"
+    val=$(grep -o '"log_success_shell"[[:space:]]*:[[:space:]]*[a-z]*' "$CONFIG_FILE" 2>/dev/null | grep -o '[a-z]*$' || echo "false")
+    if [ "$val" = "true" ]; then
+        LOG_SUCCESS_SHELL="true"
     fi
 fi
 
@@ -131,7 +134,7 @@ if [ -z "$PYTHON" ]; then
         flush_log
         HOOK_OUTPUT_EMITTED=1
         cat <<'EOF'
-{"continue": true, "suppressOutput": false, "systemMessage": "bootstrap -> python3 not found and platform not supported for auto-install. Install Python 3 manually.", "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "bootstrap -> CRITICAL: python3 not found. Unsupported platform for auto-install. Install Python 3.x manually."}}
+{"continue": true, "suppressOutput": false, "systemMessage": "${BOOTSTRAP_LABEL} -> python3 not found and platform not supported for auto-install. Install Python 3 manually.", "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "${BOOTSTRAP_LABEL} -> CRITICAL: python3 not found. Unsupported platform for auto-install. Install Python 3.x manually."}}
 EOF
         exit 0
     fi
@@ -148,7 +151,7 @@ EOF
         flush_log
         HOOK_OUTPUT_EMITTED=1
         cat <<'EOF'
-{"continue": true, "suppressOutput": false, "systemMessage": "bootstrap -> python3 not found and auto-install failed (download error). Install Python 3 manually.", "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "bootstrap -> CRITICAL: python3 not found. Auto-install download failed. Install Python 3.x manually."}}
+{"continue": true, "suppressOutput": false, "systemMessage": "${BOOTSTRAP_LABEL} -> python3 not found and auto-install failed (download error). Install Python 3 manually.", "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "${BOOTSTRAP_LABEL} -> CRITICAL: python3 not found. Auto-install download failed. Install Python 3.x manually."}}
 EOF
         exit 0
     fi
