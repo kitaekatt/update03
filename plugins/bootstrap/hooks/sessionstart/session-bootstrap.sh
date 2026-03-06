@@ -68,6 +68,14 @@ if [ -f "$CONFIG_FILE" ]; then
     fi
 fi
 
+# --- Ensure ~/.local/bin is at front of PATH ---
+# Tools installed by bootstrap (uv, python3) land here. Prepend so they're found first.
+LOCAL_BIN="${HOME}/.local/bin"
+case ":${PATH}:" in
+    *":${LOCAL_BIN}:"*) ;;  # already in PATH
+    *) export PATH="${LOCAL_BIN}:${PATH}" ;;
+esac
+
 # --- Find Python 3 ---
 # Validate each candidate by execution, not just PATH presence.
 # This handles Windows Store stubs (python3 in PATH but exits 126).
