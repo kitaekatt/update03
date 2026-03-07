@@ -51,7 +51,7 @@ def main():
     config = load_config(data_dir, defaults_dir)
 
     # Step 2: Compute current hash + check cache (self-bootstrap only)
-    manifest_path = os.path.join(plugin_root, "bootstrap.json")
+    manifest_path = os.path.join(plugin_root, "update.json")
     compute_current_hash(data_dir, [manifest_path])
     self_cached = check_cache(data_dir, [manifest_path])
 
@@ -136,7 +136,7 @@ def main():
 
     enabled_plugins = list_enabled_plugins(config, registry_path, plugins_dir)
     for plugin_info in enabled_plugins:
-        plugin_manifest_path = os.path.join(plugin_info.install_path, "bootstrap.json")
+        plugin_manifest_path = os.path.join(plugin_info.install_path, "update.json")
         if not os.path.isfile(plugin_manifest_path):
             continue
 
