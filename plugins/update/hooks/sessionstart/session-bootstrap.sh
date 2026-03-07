@@ -55,12 +55,10 @@ SHELL_LOG_ENTRIES=()
 
 log_entry() {
     local msg="$1"
-    local ts
-    ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown-time")"
-    SHELL_LOG_ENTRIES+=("[$ts] $msg")
+    SHELL_LOG_ENTRIES+=("$msg")
     # In console mode, also print to stdout immediately
     if [ -n "$FLAG_CONSOLE" ]; then
-        echo "[$ts] $msg"
+        echo "$msg"
     fi
 }
 

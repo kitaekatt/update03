@@ -30,7 +30,7 @@ def write_log_block(data_dir: str, header_label: str, entries: List[str]) -> Non
 
     lines = [f"--- {header_label} {timestamp} ---\n"]
     for entry in entries:
-        lines.append(f"[{timestamp}] {entry}\n")
+        lines.append(f"{entry}\n")
 
     with open(log_file, "a") as f:
         f.writelines(lines)

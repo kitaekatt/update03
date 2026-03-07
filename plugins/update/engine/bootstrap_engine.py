@@ -62,18 +62,24 @@ def main():
     all_action_entries = []
     all_ok_entries = []
 
-    # Detect marketplace name for log prefixes
+    # Detect marketplace name and plugin identity for log prefixes
     plugins_dir = os.path.dirname(plugin_root)
-    marketplace_name = _detect_marketplace_name(plugins_dir)
+    # Marketplace name: go 2 levels up from plugin_root and take basename.
+    # Dev: update03/plugins/update → up 2 → update03
+    # Cache: cache/update03/update/0.9.0 → up 2 → update03
+    marketplace_name = os.path.basename(os.path.normpath(os.path.join(plugin_root, "..", "..")))
     plugin_json_path = os.path.join(plugin_root, ".claude-plugin", "plugin.json")
+    boot_plugin_name = "update"
     version = ""
     try:
         with open(plugin_json_path, "r") as f:
-            version = json.load(f).get("version", "")
+            pj = json.load(f)
+            boot_plugin_name = pj.get("name", "update")
+            version = pj.get("version", "")
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         pass
     version_suffix = f"@{version}" if version else ""
-    bootstrap_label = f"{marketplace_name}:bootstrap{version_suffix}" if marketplace_name else f"bootstrap{version_suffix}"
+    bootstrap_label = f"{marketplace_name}:{boot_plugin_name}{version_suffix}" if marketplace_name else f"{boot_plugin_name}{version_suffix}"
 
     # Step 3: Self-bootstrap (own manifest)
     # "cached" entries are log-file-only (not displayed) — they mean "nothing to check"
@@ -190,10 +196,8 @@ def main():
 
     if args.console:
         # Console mode: plain text to stdout, no JSON
-        import datetime
-        ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         for entry in display_entries:
-            print(f"[{ts}] {entry}")
+            print(entry)
         if all_failures:
             print(f"\n{bootstrap_label} -> {len(all_failures)} failure(s):")
             for f in all_failures:
@@ -205,11 +209,8 @@ def main():
     if shell_content:
         parts.append(shell_content)
     if display_entries:
-        import datetime
-        ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        parts.append(f"--- Engine {ts} ---")
         for entry in display_entries:
-            parts.append(f"[{ts}] {entry}")
+            parts.append(entry)
     display_content = "\n".join(parts)
 
     # Update the log display marker
@@ -273,7 +274,7 @@ def _process_config(config_section, plugin_data_dir, plugin_root, log_entries, p
                 changed = run_autodetect(plugin_root, autodetect_spec, config, config_path)
                 if changed:
                     save_yaml_config(config_path, config)
-                    log_entries.append(f"{plugin_name}: config autodetect updated values")
+                    log_entries.append("config autodetect updated values")
             except Exception:
                 pass  # Autodetect errors are non-fatal
 
@@ -288,7 +289,7 @@ def _process_config(config_section, plugin_data_dir, plugin_root, log_entries, p
             save_yaml_config(config_path, config)
 
     if not missing:
-        log_entries.append(f"{plugin_name}: config ok")
+        log_entries.append("config ok")
         return []
 
     # 5. Fix-all: aggregate missing fields into failure directives
@@ -318,7 +319,7 @@ def _process_manifest(manifest, current_os, data_dir, plugin_root, action_entrie
     from git_dep_check import check_git_dep
 
     failures = []
-    prefix = f"{plugin_name}: " if plugin_name != "bootstrap" else ""
+    prefix = ""
 
     # Check tools
     for tool_def in manifest.get("tools", []):
@@ -682,25 +683,6 @@ def _load_plugin_config(data_dir):
     return {}
 
 
-def _detect_marketplace_name(plugins_dir):
-    """Detect the marketplace name from the plugins directory path.
-
-    Works for both dev layout (~/Dev/<marketplace>/plugins/) and
-    cache layout (~/.claude/plugins/cache/<marketplace>/<plugin>/).
-    Falls back to reading installed_plugins.json keys for the marketplace name.
-    """
-    reg_path = os.path.join(plugins_dir, "installed_plugins.json")
-    try:
-        with open(reg_path, "r") as f:
-            registry = json.load(f)
-        for ref in registry.get("plugins", {}):
-            if ":" in ref:
-                return ref.split(":", 1)[0]
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        pass
-    # Fallback: parent directory name
-    return os.path.basename(os.path.dirname(plugins_dir))
-
 
 def _run_script_phase(script_def, plugin_root, data_dir, config, log_entries, prefix="", plugin_name=""):
     """Run a custom bootstrap script. Returns list of failures."""
@@ -789,13 +771,18 @@ def _read_new_log_entries(data_dir):
     except FileNotFoundError:
         pass
 
-    # Filter to entries after the last-displayed timestamp
+    # Filter to blocks after the last-displayed timestamp.
+    # Timestamps are only on header lines (--- label timestamp ---).
+    # When a header is old, skip it and all lines until the next header.
     new_lines = []
+    include_block = not last_displayed  # If no marker, include everything
     for line in lines:
         ts = _extract_timestamp(line)
-        if ts and last_displayed and ts <= last_displayed:
-            continue
-        new_lines.append(line)
+        if ts:
+            # This is a header line — decide whether to include this block
+            include_block = ts > last_displayed if last_displayed else True
+        if include_block:
+            new_lines.append(line)
 
     if not new_lines:
         return ""
@@ -828,16 +815,12 @@ def _update_display_marker(data_dir):
 
 
 def _extract_timestamp(line):
-    """Extract ISO timestamp from a log line.
+    """Extract ISO timestamp from a log header line.
 
-    Handles both formats:
-        [2026-03-05T18:47:24Z] message...
-        --- Shell 2026-03-05T18:47:24Z ---
+    Format: --- label timestamp ---
     Returns the timestamp string or empty string.
     """
     line = line.strip()
-    if line.startswith("[") and "]" in line:
-        return line[1:line.index("]")]
     if line.startswith("---") and line.endswith("---"):
         parts = line.split()
         if len(parts) >= 3:
