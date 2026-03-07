@@ -47,15 +47,23 @@ def check_json_entries(
             message="target file does not exist",
         )
 
-    # Compare merge fields
-    for field in merge_fields:
-        ref_val = ref_data.get(field)
-        target_val = target_data.get(field)
-        if ref_val != target_val:
+    # Compare merge fields per entry (top-level keys are entry names,
+    # merge_fields refer to sub-fields within each entry)
+    for key, ref_entry in ref_data.items():
+        if not isinstance(ref_entry, dict):
+            continue
+        target_entry = target_data.get(key)
+        if not isinstance(target_entry, dict):
             return JsonCheckResult(
                 passed=False, target=target_path,
-                message=f"field '{field}' differs",
+                message=f"entry '{key}' missing from target",
             )
+        for field in merge_fields:
+            if field in ref_entry and ref_entry[field] != target_entry.get(field):
+                return JsonCheckResult(
+                    passed=False, target=target_path,
+                    message=f"entry '{key}' field '{field}' differs",
+                )
 
     return JsonCheckResult(
         passed=True, target=target_path,
@@ -93,25 +101,20 @@ def merge_json_entries(
     target_data = _load_json(target_path) or {}
     preserve_fields = preserve_fields or []
 
-    # Preserve existing fields that shouldn't be overwritten
-    preserved: Dict[str, Any] = {}
-    for field in preserve_fields:
-        if field in target_data:
-            preserved[field] = target_data[field]
+    # Merge per entry (top-level keys are entry names,
+    # merge_fields/preserve_fields refer to sub-fields within each entry)
+    for key, ref_entry in ref_data.items():
+        if not isinstance(ref_entry, dict):
+            continue
+        target_entry = target_data.setdefault(key, {})
 
-    # Merge: copy merge_fields from reference
-    for field in merge_fields:
-        if field in ref_data:
-            if isinstance(ref_data[field], dict) and isinstance(target_data.get(field), dict):
-                # Deep merge for dicts: reference entries override, target extras kept
-                merged = dict(target_data[field])
-                merged.update(ref_data[field])
-                target_data[field] = merged
-            else:
-                target_data[field] = ref_data[field]
+        # Copy merge_fields from reference entry
+        for field in merge_fields:
+            if field in ref_entry:
+                target_entry[field] = ref_entry[field]
 
-    # Restore preserved fields
-    target_data.update(preserved)
+        # Preserve existing sub-fields that shouldn't be overwritten
+        # (already in target_entry — just don't touch them)
 
     # Write target
     target = Path(target_path)
