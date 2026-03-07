@@ -849,13 +849,14 @@ def _extract_timestamp(line):
 
 
 def emit_success_response(log_content, label="bootstrap"):
-    """Emit hook JSON showing bootstrap log to user."""
+    """Emit hook JSON showing bootstrap log to user and agent."""
     response = {
         "continue": True,
         "suppressOutput": False,
         "systemMessage": f"{label}:\n{log_content}",
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
+            "additionalContext": f"{label} -> bootstrap complete:\n{log_content}",
         },
     }
     print(json.dumps(response))
