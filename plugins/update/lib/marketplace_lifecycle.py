@@ -48,12 +48,16 @@ def _run_claude(args: list, timeout: int = 120) -> tuple:
 # --- Marketplace operations ---
 
 def check_marketplace_exists(name: str) -> LifecycleResult:
-    """Check if a marketplace is registered in known_marketplaces.json."""
+    """Check if a marketplace is registered and cloned in known_marketplaces.json.
+
+    A marketplace entry without installLocation means the JSON entry exists
+    (e.g. from json_entries merge) but the repo hasn't been cloned yet.
+    """
     km_path = os.path.expanduser("~/.claude/plugins/known_marketplaces.json")
     try:
         with open(km_path, "r") as f:
             data = json.load(f)
-        if name in data:
+        if name in data and data[name].get("installLocation"):
             return LifecycleResult(passed=True, ref=name, message="marketplace exists")
     except (FileNotFoundError, json.JSONDecodeError):
         pass
